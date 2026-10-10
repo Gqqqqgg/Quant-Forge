@@ -8,7 +8,11 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "akshare>=1.19.1",
+    "baostock>=0.9.4",
     "fastapi>=0.143.0",
+    "pandas>=3.0.6",
+    "pyarrow>=26.0.0",
     "uvicorn>=0.54.0",
 ]
 
