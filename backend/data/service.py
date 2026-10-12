@@ -13,17 +13,15 @@ from typing import Any
 
 import pandas as pd
 
-from data.providers.akshare import AkShareProvider
 from data.providers.baostock import BaoStockProvider
 from data.storage.metadata_store import MetadataStore
 from data.storage.row_store import RowStore
 
-
 # BaoStock 全量复权因子同步参数。保持较低并行度，避免触发服务端限流。
-ADJUST_FACTOR_WORKERS = 2
 ADJUST_FACTOR_REQUEST_INTERVAL = 1.0
 ADJUST_FACTOR_BATCH_SIZE = 20
 ADJUST_FACTOR_BATCH_INTERVAL = 5.0
+K_LINE_REQUEST_INTERVAL = 1.0
 BEIJING_TIMEZONE = timezone(timedelta(hours=8))
 
 
@@ -45,14 +43,10 @@ class DataService:
         start_date = start_date or date(2000, 1, 1)
         end_date = end_date or date(today.year, 12, 31)
 
-        if source in {"auto", "baostock"}:
-            actual_source = "baostock" if source == "auto" else source
-            provider = BaoStockProvider()
-        elif source == "akshare":
-            actual_source = source
-            provider = AkShareProvider()
-        else:
+        if source not in {"auto", "baostock"}:
             raise ValueError(f"不支持的数据源：{source}")
+        actual_source = "baostock"
+        provider = BaoStockProvider()
 
         frame = provider.fetch_trade_dates(start_date.isoformat(), end_date.isoformat())
         if frame.empty:
@@ -69,19 +63,11 @@ class DataService:
 
     def sync_stock_basic(self, source: str) -> dict[str, Any]:
         """按数据源获取基础资料并保存为 Parquet 快照。"""
-        actual_source = "baostock" if source == "auto" else source
-        if actual_source == "baostock":
-            provider = BaoStockProvider()
-            datasets = [("stock", provider.fetch_stock_basic, "code")]
-        elif actual_source == "akshare":
-            provider = AkShareProvider()
-            datasets = [
-                ("stock", provider.fetch_stock_basic, "code"),
-                ("index", provider.fetch_index_basic, "index_code"),
-                ("fund", provider.fetch_fund_basic, "基金代码"),
-            ]
-        else:
+        if source not in {"auto", "baostock"}:
             raise ValueError(f"不支持的数据源：{source}")
+        actual_source = "baostock"
+        provider = BaoStockProvider()
+        datasets = [("stock", provider.fetch_stock_basic, "code")]
 
         snapshot_date = datetime.now(timezone(timedelta(hours=8))).date().isoformat()
         rows: dict[str, int] = {}
@@ -107,36 +93,21 @@ class DataService:
         limit: int | None = None,
     ) -> dict[str, Any]:
         """按数据源并行同步股票复权因子，并按批次落盘。"""
-        if source in {"auto", "baostock"}:
-            actual_source = "baostock" if source == "auto" else source
-            provider = BaoStockProvider()
-            stock_path = self.metadata_store.root_path("baostock", "stock_basic") / "data.parquet"
-            if not stock_path.exists():
-                raise RuntimeError(f"找不到 {actual_source} 股票基础资料：{stock_path}")
-            stock_frame = pd.read_parquet(stock_path)
-            stock_frame = stock_frame[stock_frame["type"].astype(str) == "1"]
-            symbols = stock_frame["code"].dropna().astype(str).drop_duplicates().tolist()
-        elif source == "akshare":
-            actual_source = source
-            provider = AkShareProvider()
-            stock_path = self.metadata_store.root_path("akshare", "stock_basic") / "stock.parquet"
-            if not stock_path.exists():
-                raise RuntimeError(f"找不到 {actual_source} 股票基础资料：{stock_path}")
-            stock_frame = pd.read_parquet(stock_path)
-            symbols = stock_frame["code"].dropna().astype(str).str.zfill(6).drop_duplicates().tolist()
-        else:
+        if source not in {"auto", "baostock"}:
             raise ValueError(f"不支持的数据源：{source}")
+        actual_source = "baostock"
+        provider = BaoStockProvider()
+        stock_path = self.metadata_store.root_path("baostock", "stock_basic") / "data.parquet"
+        if not stock_path.exists():
+            raise RuntimeError(f"找不到 {actual_source} 股票基础资料：{stock_path}")
+        stock_frame = pd.read_parquet(stock_path)
+        stock_frame = stock_frame[stock_frame["type"].astype(str) == "1"]
+        symbols = stock_frame["code"].dropna().astype(str).drop_duplicates().tolist()
         if limit is not None:
             symbols = symbols[:limit]
 
-        progress_path = (
-            self.row_store.root
-            / actual_source
-            / "row"
-            / "adjust_factor"
-            / "progress.json"
-        )
-        progress = self._load_adjust_factor_progress(progress_path)
+        progress_path = self._progress_path(actual_source, "adjust_factor")
+        progress = self._load_progress(progress_path)
         request_range = {"start_date": start_date.isoformat(), "end_date": end_date.isoformat()}
         if (
             progress.get("start_date") != request_range["start_date"]
@@ -190,7 +161,7 @@ class DataService:
 
         pending_frames: list[pd.DataFrame] = []
         batches = [symbols[index : index + ADJUST_FACTOR_BATCH_SIZE] for index in range(0, len(symbols), ADJUST_FACTOR_BATCH_SIZE)]
-        worker_count = 1 if actual_source == "baostock" else ADJUST_FACTOR_WORKERS
+        worker_count = 1
         with ThreadPoolExecutor(max_workers=worker_count) as executor:
             futures = [executor.submit(fetch_batch, batch) for batch in batches]
             for batch_index, future in enumerate(as_completed(futures), start=1):
@@ -212,14 +183,91 @@ class DataService:
                 progress.update(request_range)
                 progress["last_updated"] = datetime.now(BEIJING_TIMEZONE).isoformat()
                 progress["failures"] = summary["failures"]
-                self._save_adjust_factor_progress(progress_path, progress)
+                self._save_progress(progress_path, progress)
                 if batch_index < len(batches):
                     time.sleep(ADJUST_FACTOR_BATCH_INTERVAL)
 
         return summary
 
+    def sync_daily_k_line(
+        self,
+        source: str,
+        start_date: date,
+        end_date: date,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        """增量同步股票未复权日线行情，并按股票保存断点。"""
+        if source not in {"auto", "baostock"}:
+            raise ValueError(f"不支持的数据源：{source}")
+        actual_source = "baostock"
+        provider = BaoStockProvider()
+        stock_path = self.metadata_store.root_path("baostock", "stock_basic") / "data.parquet"
+        if not stock_path.exists():
+            raise RuntimeError(f"找不到 {actual_source} 股票基础资料：{stock_path}")
+        stock_frame = pd.read_parquet(stock_path)
+        stock_frame = stock_frame[stock_frame["type"].astype(str) == "1"]
+        symbols = stock_frame["code"].dropna().astype(str).drop_duplicates().tolist()
+        if limit is not None:
+            symbols = symbols[:limit]
+
+        progress_path = self._progress_path(actual_source, "k_line")
+        progress = self._load_progress(progress_path)
+        storage_format = "year_symbol_v1"
+        request_range = {"start_date": start_date.isoformat(), "end_date": end_date.isoformat()}
+        if (
+            progress.get("storage_format") != storage_format
+            or progress.get("start_date") != request_range["start_date"]
+            or progress.get("end_date") != request_range["end_date"]
+        ):
+            progress = {**request_range, "storage_format": storage_format, "completed_symbols": [], "failures": []}
+        completed = set(progress.get("completed_symbols", []))
+        symbols = [symbol for symbol in symbols if symbol not in completed]
+        summary: dict[str, Any] = {"source": actual_source, **request_range, "total": len(symbols), "success_count": 0, "failed_count": 0, "rows": 0, "failures": []}
+        session_open = actual_source == "baostock"
+        if session_open:
+            provider.connect()
+        try:
+            for index, symbol in enumerate(symbols):
+                try:
+                    kwargs = {"manage_session": False} if session_open else {}
+                    try:
+                        frame = provider.fetch_daily_k_line(symbol, start_date.isoformat(), end_date.isoformat(), **kwargs)
+                    except Exception as exc:  # noqa: BLE001
+                        if not session_open or "未登录" not in str(exc):
+                            raise
+                        provider.disconnect()
+                        provider.connect()
+                        frame = provider.fetch_daily_k_line(symbol, start_date.isoformat(), end_date.isoformat(), **kwargs)
+                    if frame is not None and not frame.empty:
+                        self.row_store.save_k_lines(frame, actual_source)
+                        summary["rows"] += len(frame)
+                    completed.add(symbol)
+                    summary["success_count"] += 1
+                except Exception as exc:  # noqa: BLE001
+                    summary["failed_count"] += 1
+                    summary["failures"].append({"symbol": symbol, "error": str(exc)})
+                progress.update(
+                    {
+                        **request_range,
+                        "storage_format": storage_format,
+                        "completed_symbols": sorted(completed),
+                        "failures": summary["failures"],
+                        "last_updated": datetime.now(BEIJING_TIMEZONE).isoformat(),
+                    }
+                )
+                self._save_progress(progress_path, progress)
+                if index < len(symbols) - 1:
+                    time.sleep(K_LINE_REQUEST_INTERVAL)
+        finally:
+            if session_open:
+                provider.disconnect()
+        return summary
+
+    def _progress_path(self, source: str, dataset: str) -> Path:
+        return self.row_store.root / source / "row" / dataset / "progress.json"
+
     @staticmethod
-    def _load_adjust_factor_progress(path: Path) -> dict[str, Any]:
+    def _load_progress(path: Path) -> dict[str, Any]:
         if not path.exists():
             return {"completed_symbols": [], "failures": []}
         try:
@@ -228,7 +276,7 @@ class DataService:
             return {"completed_symbols": [], "failures": []}
 
     @staticmethod
-    def _save_adjust_factor_progress(path: Path, progress: dict[str, Any]) -> None:
+    def _save_progress(path: Path, progress: dict[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary_path = path.with_suffix(".json.tmp")
         temporary_path.write_text(json.dumps(progress, ensure_ascii=False, indent=2), encoding="utf-8")

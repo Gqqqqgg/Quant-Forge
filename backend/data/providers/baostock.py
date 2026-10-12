@@ -61,6 +61,37 @@ class BaoStockProvider:
             if manage_session:
                 self.disconnect()
 
+    def fetch_daily_k_line(
+        self,
+        symbol: str,
+        start_date: str,
+        end_date: str,
+        adjustflag: str = "3",
+        manage_session: bool = True,
+    ) -> pd.DataFrame:
+        """获取单只证券的日线行情。``adjustflag=3`` 表示不复权。"""
+        if manage_session:
+            self.connect()
+        try:
+            fields = "date,code,open,high,low,close,preclose,volume,amount,turn,pctChg"
+            result = self.bs.query_history_k_data_plus(
+                symbol,
+                fields,
+                start_date=start_date,
+                end_date=end_date,
+                frequency="d",
+                adjustflag=adjustflag,
+            )
+            if result.error_code != "0":
+                raise RuntimeError(f"BaoStock 日线行情请求失败：{result.error_msg}")
+            frame = self._result_to_frame(result)
+            if frame.empty:
+                return frame
+            return frame.rename(columns={"date": "trade_date"})
+        finally:
+            if manage_session:
+                self.disconnect()
+
     def connect(self, retries: int = 3, delay: float = 0.5, backoff: float = 2.0) -> Any:
         for attempt in range(retries + 1):
             if attempt:

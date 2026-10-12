@@ -9,10 +9,10 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "baostock>=0.9.4",
-    "akshare>=1.16.0",
     "fastapi>=0.143.0",
     "pandas>=3.0.6",
     "pyarrow>=26.0.0",
+    "tushare>=1.4.29",
     "uvicorn>=0.54.0",
 ]
 
