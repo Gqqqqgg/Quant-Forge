@@ -1,1 +1,1 @@
-"""Data ingestion and storage package."""
+"""数据采集与存储包。"""

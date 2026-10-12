@@ -1,1 +1,1 @@
-"""External market data providers."""
+"""外部行情数据提供方。"""

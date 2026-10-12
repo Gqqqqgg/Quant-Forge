@@ -1,4 +1,4 @@
-"""Application service for incremental raw market-data synchronization."""
+"""增量同步原始行情数据的应用服务。"""
 
 from __future__ import annotations
 
@@ -26,20 +26,29 @@ class DataService:
         end_date: date,
         shard_size: int = 200,
         limit: int | None = None,
-        workers: int = 10,
+        workers: int = 1,
         timeout: float = 30,
         retries: int = 3,
         delay: float = 0.5,
         backoff: float = 2.0,
         batch_size: int = 10,
         batch_interval: float = 5.0,
+        resume: bool = True,
     ) -> dict[str, Any]:
         if start_date > end_date:
-            raise ValueError("start_date must be before or equal to end_date")
+            raise ValueError("开始日期必须早于或等于结束日期。")
         if shard_size <= 0:
-            raise ValueError("shard_size must be greater than zero")
+            raise ValueError("分片大小必须大于 0。")
 
         provider, actual_source = self._provider_with_fallback(source)
+        progress_path = self.raw_store.progress_path(
+            actual_source,
+            asset_type,
+            start_date.isoformat(),
+            end_date.isoformat(),
+        )
+        progress = self.raw_store.load_progress(progress_path) if resume else {"completed_symbols": []}
+        completed_symbols = set(progress.get("completed_symbols", []))
         summary: dict[str, Any] = {
             "source": actual_source,
             "asset_type": asset_type,
@@ -48,6 +57,8 @@ class DataService:
             "failed_count": 0,
             "rows": 0,
             "shard_count": 0,
+            "resumed_count": len(completed_symbols),
+            "progress_file": str(progress_path),
             "failures": [],
         }
         batch = []
@@ -63,6 +74,7 @@ class DataService:
             backoff=backoff,
             batch_size=batch_size,
             batch_interval=batch_interval,
+            skip_symbols=completed_symbols,
         ):
             if item.payload is None:
                 summary["failed_count"] += 1
@@ -71,17 +83,23 @@ class DataService:
 
             if getattr(item.payload, "empty", False):
                 summary["failed_count"] += 1
-                summary["failures"].append({"symbol": item.symbol, "error": "empty response"})
+                summary["failures"].append({"symbol": item.symbol, "error": "返回数据为空。"})
                 continue
 
             batch.append(item)
             summary["success_count"] += 1
             if len(batch) >= shard_size:
                 self._save_batch(summary, batch, actual_source, source, asset_type, start_date, end_date)
+                completed_symbols.update(item.symbol for item in batch)
+                self.raw_store.save_progress(progress_path, completed_symbols, "进行中")
                 batch = []
 
         if batch:
             self._save_batch(summary, batch, actual_source, source, asset_type, start_date, end_date)
+            completed_symbols.update(item.symbol for item in batch)
+            self.raw_store.save_progress(progress_path, completed_symbols, "进行中")
+        status = "已完成" if summary["failed_count"] == 0 else "已完成但存在失败标的"
+        self.raw_store.save_progress(progress_path, completed_symbols, status)
         return summary
 
     def _save_batch(
@@ -112,9 +130,9 @@ class DataService:
         for candidate in candidates:
             try:
                 return self._provider(candidate), candidate
-            except Exception as exc:  # noqa: BLE001 - try the next configured provider.
+            except Exception as exc:  # noqa: BLE001 - 当前数据源初始化失败时尝试下一个数据源。
                 errors.append(f"{candidate}: {exc}")
-        raise RuntimeError("All requested providers failed: " + "; ".join(errors))
+        raise RuntimeError("所有请求的数据源均初始化失败：" + "；".join(errors))
 
     @staticmethod
     def _provider(source: str):
@@ -122,4 +140,4 @@ class DataService:
             return AkShareProvider()
         if source == "baostock":
             return BaoStockProvider()
-        raise ValueError(f"Unsupported source: {source}")
+        raise ValueError(f"不支持的数据源：{source}")

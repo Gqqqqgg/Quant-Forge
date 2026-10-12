@@ -1,4 +1,4 @@
-"""Provider result types."""
+"""数据提供方返回结果类型。"""
 
 from __future__ import annotations
 

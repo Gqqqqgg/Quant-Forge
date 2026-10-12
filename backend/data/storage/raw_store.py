@@ -1,4 +1,4 @@
-"""Persist raw provider responses as time-partitioned Parquet shards."""
+"""按时间分区保存原始数据 Parquet 分片。"""
 
 from __future__ import annotations
 
@@ -19,6 +19,38 @@ class RawStore:
     def __init__(self, root: Path) -> None:
         self.root = root
         self.root.mkdir(parents=True, exist_ok=True)
+
+    def progress_path(self, source: str, asset_type: str, request_start: str, request_end: str) -> Path:
+        """返回一次同步任务的进度文件路径。"""
+        progress_root = self.root / "_progress"
+        progress_root.mkdir(parents=True, exist_ok=True)
+        return progress_root / f"{source}-{asset_type}-{request_start}-{request_end}.json"
+
+    @staticmethod
+    def load_progress(path: Path) -> dict[str, Any]:
+        """读取进度文件；文件不存在或损坏时从空进度开始。"""
+        if not path.exists():
+            return {"completed_symbols": []}
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {"completed_symbols": []}
+        completed = data.get("completed_symbols", [])
+        if not isinstance(completed, list):
+            return {"completed_symbols": []}
+        return {**data, "completed_symbols": [str(symbol) for symbol in completed]}
+
+    @staticmethod
+    def save_progress(path: Path, completed_symbols: set[str], status: str) -> None:
+        """原子写入已完成标的，避免进程中断时破坏进度文件。"""
+        payload = {
+            "status": status,
+            "completed_symbols": sorted(completed_symbols),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        temporary_path = path.with_suffix(f"{path.suffix}.tmp")
+        temporary_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        temporary_path.replace(path)
 
     def save_batch(
         self,
@@ -52,7 +84,11 @@ class RawStore:
             batch_id = uuid4().hex
             data_path = partition / f"part-{batch_id}.parquet"
             output = year_frame.drop(columns=["_partition_date"])
-            output.to_parquet(data_path, index=False)
+            written_at = datetime.now(timezone.utc).isoformat()
+            output.insert(0, "source", source)
+            output.insert(1, "ingest_time", written_at)
+            output.insert(2, "schema_version", "2")
+            output.to_parquet(data_path, engine="pyarrow", index=False)
             manifest = {
                 "batch_id": batch_id,
                 "source": source,
@@ -65,7 +101,7 @@ class RawStore:
                 "row_count": len(output),
                 "file_path": str(data_path),
                 "file_hash": hashlib.sha256(data_path.read_bytes()).hexdigest(),
-                "written_at": datetime.now(timezone.utc).isoformat(),
+                "written_at": written_at,
             }
             manifest_path = partition / f"part-{batch_id}.manifest.json"
             manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -81,8 +117,8 @@ class RawStore:
 
     def _validate(self, source: str, asset_type: str, dataset: str) -> None:
         if source not in self.supported_sources:
-            raise ValueError(f"Unsupported raw source: {source}")
+            raise ValueError(f"不支持的原始数据源：{source}")
         if asset_type not in self.supported_asset_types:
-            raise ValueError(f"Unsupported raw asset type: {asset_type}")
+            raise ValueError(f"不支持的原始资产类型：{asset_type}")
         if not dataset:
-            raise ValueError("dataset must not be empty")
+            raise ValueError("数据集名称不能为空。")
