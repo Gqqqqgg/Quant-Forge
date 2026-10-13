@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
 import pandas as pd
 
 BEIJING_TIMEZONE = timezone(timedelta(hours=8))

@@ -10,9 +10,9 @@ from typing import Any
 
 import pandas as pd
 
-from data.providers.baostock import BaoStockProvider
-from data.storage.metadata_store import MetadataStore
-from data.storage.row_store import RowStore
+from market_data.providers.baostock import BaoStockProvider
+from market_data.storage.metadata_store import MetadataStore
+from market_data.storage.row_store import RowStore
 
 
 class DataService:

@@ -22,7 +22,3 @@ dist/
 .env.*
 !.env.example
 *.log
-
-# Downloaded raw market data and task metadata
-data/raw/*
-!data/raw/.gitkeep

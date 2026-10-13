@@ -15,7 +15,7 @@ class RowStore:
         self.root = root
 
     def save_adjust_factor(self, frame: pd.DataFrame, source: str) -> dict[str, Path]:
-        """保存复权事件和因子，并按证券及生效日期去重。"""
+        """按股票代码保存复权因子，并按证券及生效日期去重。"""
         required = {"code", "dividOperateDate"}
         missing = required.difference(frame.columns)
         if missing:
@@ -26,13 +26,12 @@ class RowStore:
         output["ingest_time"] = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
         dates = pd.to_datetime(output["dividOperateDate"], errors="coerce")
         output = output.loc[dates.notna()].copy()
-        output["_factor_year"] = dates.loc[output.index].dt.year.astype(int)
+        output["dividOperateDate"] = dates.loc[output.index].dt.strftime("%Y-%m-%d")
 
         paths: dict[str, Path] = {}
         dataset_root = self.root / source / "row" / "adjust_factor"
-        for year, partition in output.groupby("_factor_year"):
-            partition = partition.drop(columns=["_factor_year"])
-            path = dataset_root / f"{int(year)}.parquet"
+        for code, partition in output.groupby("code"):
+            path = dataset_root / f"{code}.parquet"
             if path.exists():
                 partition = pd.concat([pd.read_parquet(path), partition], ignore_index=True)
             partition = (
@@ -44,11 +43,11 @@ class RowStore:
             temporary_path = path.with_suffix(".parquet.tmp")
             partition.to_parquet(temporary_path, engine="pyarrow", index=False)
             temporary_path.replace(path)
-            paths[str(year)] = path
+            paths[str(code)] = path
         return paths
 
     def save_daily_k_line(self, frame: pd.DataFrame, source: str) -> dict[str, Path]:
-        """保存日线行情，按交易年份和股票分片，并以 code/trade_date 去重。"""
+        """按股票代码保存原始日线，并以 code/trade_date 去重。"""
         required = {"code", "trade_date", "open", "high", "low", "close"}
         missing = required.difference(frame.columns)
         if missing:
@@ -62,13 +61,11 @@ class RowStore:
         if output.empty:
             return {}
         output["trade_date"] = dates.loc[output.index].dt.strftime("%Y-%m-%d")
-        output["_trade_year"] = dates.loc[output.index].dt.year.astype(int)
 
         paths: dict[str, Path] = {}
         dataset_root = self.root / source / "row" / "k_line"
-        for (year, code), partition in output.groupby(["_trade_year", "code"], dropna=False):
-            partition = partition.drop(columns=["_trade_year"])
-            path = dataset_root / str(int(year)) / f"{code}.parquet"
+        for code, partition in output.groupby("code"):
+            path = dataset_root / f"{code}.parquet"
             if path.exists():
                 partition = pd.concat([pd.read_parquet(path), partition], ignore_index=True)
             partition = (
@@ -80,5 +77,5 @@ class RowStore:
             temporary_path = path.with_suffix(".parquet.tmp")
             partition.to_parquet(temporary_path, engine="pyarrow", index=False)
             temporary_path.replace(path)
-            paths[f"{int(year)}/{code}"] = path
+            paths[str(code)] = path
         return paths
