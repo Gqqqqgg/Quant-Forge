@@ -47,39 +47,40 @@ metadata 同步通过 `market_data.service.DataService` 直接调用。默认数
 
 当前已支持交易日历、证券基础资料、复权因子和未复权日线行情同步。日线行情字段以 `code`、`trade_date`、OHLC 为核心，并保留成交量、成交额和换手率（数据源提供时）。
 
-## 复权计算
+## 实时计算接口
 
-`market_data.calculated.adjustment.Adjustment` 负责计算前复权和后复权 K 线。使用配置的数据目录，调用 `Adjustment().calculate_saved_k_lines(source="baostock")` 处理本地全部股票，也可传入 `symbols` 列表。
+接口按模块组织：`backend/api/stocks.py` 提供原始股票列表，`backend/api/calculated/` 接收计算参数并返回响应。计算业务位于 `backend/server/calculated/`：`adjustment.py` 计算复权、`returns.py` 计算收益率、`indicators.py` 计算指标；`service.py` 的 `CalculationService` 组织原始数据读取、计算和日期截取。`api/calculated/request.py` 定义 `CalculationRequest`，`api/calculated/response.py` 定义 `CalculationResponse`，并调用服务、转换 HTTP 错误及组装响应。业务服务不依赖 API，计算不落盘。
 
-`calculate_adjusted_k_line()` 接收原始日线、BaoStock 因子和 `qfq`／`hfq` 类型，返回新 DataFrame。每个交易日匹配同股票最近已生效的因子，前复权乘 `foreAdjustFactor`，后复权乘 `backAdjustFactor`，不再累乘。OHLC 和 `preclose` 使用同一当天因子；成交量、成交额及原始涨跌幅保留。结果附带 `factor_date`、`price_factor` 和 `adjust_type`，落盘时增加 `calculated_time`。
+- `GET /api/stocks?source=baostock`：从原始日线列出股票。
+- `POST /api/calculated/adjustment`：计算前复权或后复权日线。
+- `POST /api/calculated/returns`：计算每日与累计收益率。
+- `POST /api/calculated/indicators`：计算指定窗口的均线、收益率波动率和平均成交量。
+- `POST /api/calculated/charts`：一次返回图表所需的价格、成交量、收益率和指标。
+- `GET /api/stocks/{symbol}/charts`：支持同名查询参数，`windows` 可重复传入。
 
-结果保存为 `{source}/calculated/qfq_k_line/<股票代码>.parquet` 和 `{source}/calculated/hfq_k_line/<股票代码>.parquet`。每次完整重算并覆盖对应计算文件，原始 K 线不改动。前复权因子以获取因子时的最新基准为准，发生新除权后需要更新历史因子并重算历史前复权。
+POST 请求示例：
 
-因子必须覆盖首个交易日：需要包含起始日前最近一条已生效记录。缺失时明确报错，不用未来因子或 `1` 填充。
+```json
+{
+  "source": "baostock",
+  "symbol": "sh.600519",
+  "start_date": "2025-01-01",
+  "end_date": "2026-10-13",
+  "adjust_type": "hfq",
+  "windows": [5, 20, 60]
+}
+```
 
-## 收益率计算
+数据源默认 `tushare`，现阶段 BaoStock 测试需显式传入 `baostock`。日期可省略，省略时使用已有历史区间。`adjust_type` 支持 `qfq` 和 `hfq`；指标窗口支持 2 至 250 的整数，空列表表示不计算窗口指标。
 
-`market_data.calculated.returns.Returns` 基于复权收盘价计算每日及累计收益率，使用 `Returns().calculate_saved_returns(source="baostock")` 处理本地全部后复权股票，也可传入 `symbols` 列表。计算不请求数据源。
+接口只读取 `{source}/row/k_line/<股票代码>.parquet` 和 `{source}/row/adjust_factor/<股票代码>.parquet`，无需 `calculated` 数据目录，不联网同步。复权价格乘以对应累计因子，首个行情日前必须存在有效因子。先使用截至结束日期的历史数据计算指标，再截取请求区间，保证滚动窗口预热和每日收益率连续；累计收益率以请求区间首日收盘价为基准。前复权使用本地因子当前基准。
 
-`calculate_returns()` 接收 DataFrame，按股票和日期排序，返回 `code`、`trade_date`、`close`、`daily_return`、`cumulative_return`，输入包含 `adjust_type` 时也会保留。每日收益率为当日收盘价除以上一条交易记录的收盘价减一；累计收益率为当日收盘价除以该股票输入数据的首日收盘价减一，等价于每日收益的复利累计。首日每日收益留空，累计收益为零。收益率采用小数表示，`0.1` 表示 `10%`。收盘价缺失、非正或日期重复时明确报错。
-
-批量计算读取 `{source}/calculated/hfq_k_line/<股票代码>.parquet`，结果完整覆盖保存到 `{source}/calculated/returns/<股票代码>.parquet`，增加 `source`、`adjust_type` 和 `calculated_time`。原始和复权 K 线均不改动。
-
-## 技术指标
-
-`market_data.calculated.indicators.Indicators` 提供 `calculate_indicators()`，接收含股票代码、交易日期、复权收盘价和原始成交量的 DataFrame，计算 5、20、60 日三个窗口的均线、收益率波动率和平均成交量。列名为 `ma5/ma20/ma60`、`volatility5/volatility20/volatility60`、`volume_ma5/volume_ma20/volume_ma60`。每日和累计收益率复用 `Returns` 的计算逻辑，也包含在输出中。
-
-均线基于后复权收盘价；波动率是窗口内有效每日收益率的样本标准差（`ddof=1`），不做年化；平均成交量基于原始成交量。窗口均包含当天，仅使用当天及之前的数据，不足窗口时留空。N 日均线和平均成交量从第 N 条交易记录开始有效；首日收益为空，因此 N 日波动率从第 N+1 条交易记录开始有效。
-
-原始成交量为空时保留为缺失值，不补零；包含缺失值的平均成交量窗口留空，不影响价格均线和收益率波动率。负数、非有限数值或无法解析的非空成交量会报错。
-
-调用 `Indicators().calculate_saved_indicators(source="baostock")` 处理本地全部后复权股票，也可传入 `symbols`。读取 `{source}/calculated/hfq_k_line/<股票代码>.parquet`，完整覆盖保存到 `{source}/calculated/indicators/<股票代码>.parquet`，不请求数据源或修改输入 K 线。
+指标列为 `maN`、`volatilityN` 和 `volume_maN`；波动率为每日收益率样本标准差（`ddof=1`），不年化。窗口不足或成交量缺失时对应窗口留空，JSON 返回 `null`。计算结果仅返回给调用方，不落盘。已有计算文件不再被读取。
 
 ## 测试
 
-计算模块用例位于 `tests/calculated/`，使用模拟行情和临时目录，不请求数据源或修改本地行情。在 `backend/` 执行：
+计算算法用例位于 `tests/server/calculated/`，使用模拟行情，不请求数据源或修改本地行情。在 `backend/` 执行：
 
 ```powershell
-uv run --group dev pytest tests/calculated
+uv run --group dev pytest tests/server/calculated
 ```
-
