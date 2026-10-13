@@ -1,4 +1,4 @@
-﻿# 后端
+# 后端
 
 ## 启动
 
@@ -14,22 +14,15 @@
 uv run uvicorn main:app --reload
 ```
 
-## 执行数据同步
+## 数据同步
 
-同步命令通过 `main.py` 执行，默认同步未复权日线行情。
+`main.py` 仅提供 FastAPI 应用入口。数据同步通过 `data.service.DataService` 的服务方法调用。
 
-例如先同步 10 只股票进行验证：
+数据源默认是 `tushare`，不支持 `auto` 或自动切换。目前 Tushare 同步接口尚未实现，默认调用会明确报错。现阶段使用免费的 BaoStock 测试时，必须显式传入 `source="baostock"`；日线和复权因子同步须指定 `start_date` 和 `end_date`。
 
-```powershell
-cd backend
-uv run python main.py --dataset k_line --source baostock --start-date 2024-01-01 --end-date 2024-12-31 --limit 10
-```
-
-去掉 `--limit` 后同步全部股票；复权因子同步使用 `--dataset adjust_factor`。
+Service 的两个同步方法接受 `symbols`，传入股票列表时无需先同步 metadata，不传时从 `stock.parquet` 读取全量股票。`row_store.py` 仅保留 `save_adjust_factor()` 和 `save_daily_k_line()` 两个保存方法，命名与 service 对应。保存格式沿用现有逻辑，重复运行按股票和日期去重；同步方法返回成功数、失败数、行数和失败详情。
 
 基础资料 metadata 已完成同步。BaoStock 的 `query_stock_basic()` 返回多种证券类型，`type` 包括股票、指数、其他、可转债和 ETF，统一写入 `stock.parquet`。
-
-`main.py` 仅保留 FastAPI 应用入口；数据同步通过 `data.service.DataService` 的服务方法调用。
 
 ## 代码格式化
 
@@ -48,9 +41,9 @@ metadata 同步通过 `data.service.DataService` 直接调用。默认数据目�
 
 复权事件通过对应 provider 的 `fetch_adjust_factor()` 获取，并由 `DataService.sync_adjust_factor()` 写入 `{source}/row/adjust_factor/<年份>.parquet`；使用 `code` 和 `dividOperateDate` 去重。
 
-日线行情通过 `DataService.sync_daily_k_line()` 同步，按年份和股票分片写入 `{source}/row/k_line/<年份>/<code>.parquet`，按 `code` 和 `trade_date` 去重；命令行可使用 `--dataset k_line` 执行。
+日线行情通过 `DataService.sync_daily_k_line()` 同步，按年份和股票分片写入 `{source}/row/k_line/<年份>/<code>.parquet`，按 `code` 和 `trade_date` 去重。
 
-全量复权因子同步使用 `DataService.sync_adjust_factor()`：固定 2 个并行任务、请求启动间隔 1 秒，每 20 只股票批量落盘并等待 5 秒；进度按数据源保存在 `{root}/<source>/row/adjust_factor/progress.json`。
+复权因子和原始日线均按股票列表逐只采集和保存，每次请求前等待 5 秒，重新登录后的重试请求也一样。日期是否齐全及开始日期是否晚于结束日期由 service 检查。每次运行都重新请求整个股票列表，不读写进度文件。
 
 当前已支持交易日历、证券基础资料、复权因子和未复权日线行情同步。日线行情字段以 `code`、`trade_date`、OHLC 为核心，并保留成交量、成交额和换手率（数据源提供时）。
 

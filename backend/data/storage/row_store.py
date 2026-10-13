@@ -1,4 +1,4 @@
-"""保存按标的产生的行情行数据。"""
+"""将股票原始日线和复权因子保存为 Parquet。"""
 
 from __future__ import annotations
 
@@ -7,8 +7,6 @@ from pathlib import Path
 
 import pandas as pd
 
-BEIJING_TIMEZONE = timezone(timedelta(hours=8))
-
 
 class RowStore:
     """按数据源和行数据集保存 Parquet。"""
@@ -16,7 +14,7 @@ class RowStore:
     def __init__(self, root: Path) -> None:
         self.root = root
 
-    def save_adjust_factors(self, frame: pd.DataFrame, source: str) -> dict[str, Path]:
+    def save_adjust_factor(self, frame: pd.DataFrame, source: str) -> dict[str, Path]:
         """保存复权事件和因子，并按证券及生效日期去重。"""
         required = {"code", "dividOperateDate"}
         missing = required.difference(frame.columns)
@@ -25,7 +23,7 @@ class RowStore:
 
         output = frame.copy()
         output["source"] = source
-        output["ingest_time"] = datetime.now(BEIJING_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
+        output["ingest_time"] = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
         dates = pd.to_datetime(output["dividOperateDate"], errors="coerce")
         output = output.loc[dates.notna()].copy()
         output["_factor_year"] = dates.loc[output.index].dt.year.astype(int)
@@ -49,7 +47,7 @@ class RowStore:
             paths[str(year)] = path
         return paths
 
-    def save_k_lines(self, frame: pd.DataFrame, source: str) -> dict[str, Path]:
+    def save_daily_k_line(self, frame: pd.DataFrame, source: str) -> dict[str, Path]:
         """保存日线行情，按交易年份和股票分片，并以 code/trade_date 去重。"""
         required = {"code", "trade_date", "open", "high", "low", "close"}
         missing = required.difference(frame.columns)
@@ -58,7 +56,7 @@ class RowStore:
 
         output = frame.copy()
         output["source"] = source
-        output["ingest_time"] = datetime.now(BEIJING_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
+        output["ingest_time"] = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
         dates = pd.to_datetime(output["trade_date"], errors="coerce")
         output = output.loc[dates.notna()].copy()
         if output.empty:
