@@ -205,7 +205,7 @@ export default function App() {
   const [period, setPeriod] = useState("1y");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-  const [adjustType, setAdjustType] = useState<"qfq" | "hfq">("hfq");
+  const [adjustType, setAdjustType] = useState<"none" | "qfq" | "hfq">("hfq");
   const [windows, setWindows] = useState<number[]>([5, 20, 60]);
   const [loading, setLoading] = useState(true);
   const [listLoading, setListLoading] = useState(true);
@@ -221,7 +221,7 @@ export default function App() {
     cutoff.setUTCMonth(cutoff.getUTCMonth() - months);
     requestedStart = cutoff.toISOString().slice(0, 10);
   }
-  const priceLabel = adjustType === "hfq" ? "后复权" : "前复权";
+  const priceLabel = { none: "不复权", qfq: "前复权", hfq: "后复权" }[adjustType];
 
   useEffect(() => {
     const controller = new AbortController();
@@ -562,12 +562,13 @@ export default function App() {
               <span>复权方式</span>
               <Select
                 value={adjustType}
-                onValueChange={(value) => setAdjustType(value as "qfq" | "hfq")}
+                onValueChange={(value) => setAdjustType(value as "none" | "qfq" | "hfq")}
               >
                 <SelectTrigger className="w-[130px]" aria-label="复权方式">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="none">不复权</SelectItem>
                   <SelectItem value="qfq">前复权</SelectItem>
                   <SelectItem value="hfq">后复权</SelectItem>
                 </SelectContent>
@@ -608,7 +609,7 @@ export default function App() {
                 <Metric
                   label={`${priceLabel}收盘价`}
                   value={`¥ ${money(latest.close)}`}
-                  detail={`${latest.trade_date} · 复权价格，非实际成交价`}
+                  detail={`${latest.trade_date} · ${adjustType === "none" ? "原始行情价格" : "复权价格，非实际成交价"}`}
                 />
                 <Metric
                   label="最新交易日收益"

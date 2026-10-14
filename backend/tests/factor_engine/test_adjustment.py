@@ -1,7 +1,10 @@
+from datetime import date
+
 import pandas as pd
 import pytest
 
-from factor_engine.adjustment import calculate_adjusted_k_line
+from factor_engine.adjustment import DateRangeError, calculate_adjusted_k_line, get_adjusted_k_line, get_raw_k_line
+from factor_engine.indicators import get_indicators
 
 
 @pytest.fixture
@@ -111,3 +114,42 @@ def test_duplicate_dates_are_rejected(frames, duplicate):
         factors = pd.concat([factors, factors.iloc[[0]]])
     with pytest.raises(ValueError, match="重复"):
         calculate_adjusted_k_line(k_lines, factors, "qfq")
+
+
+def test_unadjusted_prices_ignore_factors_and_preserve_input(frames):
+    k_lines, _ = frames
+    original = k_lines.copy(deep=True)
+    result = calculate_adjusted_k_line(k_lines.iloc[::-1], pd.DataFrame(), "none")
+    for column in ("open", "high", "low", "close", "preclose"):
+        assert result[column].tolist() == pd.to_numeric(k_lines[column]).tolist()
+    for column in ("volume", "amount"):
+        pd.testing.assert_series_equal(result[column], k_lines[column])
+    assert result["adjust_type"].tolist() == ["none"] * 3
+    assert "price_factor" not in result
+    assert "factor_date" not in result
+    pd.testing.assert_frame_equal(k_lines, original)
+
+
+@pytest.mark.parametrize("source", ["baostock", "tushare"])
+def test_raw_k_line_and_charts_need_no_factor_file(frames, tmp_path, source):
+    k_lines, _ = frames
+    path = tmp_path / source / "row" / "k_line" / "sh.600036.parquet"
+    path.parent.mkdir(parents=True)
+    k_lines.to_parquet(path)
+    parameters = dict(
+        symbol="sh.600036", source=source, start_date=date(2026, 7, 10), end_date=date(2026, 7, 10), root=tmp_path
+    )
+    raw = get_raw_k_line(**parameters)
+    assert raw["trade_date"].tolist() == ["2026-07-10"]
+    assert raw["close"].tolist() == [39]
+    pd.testing.assert_frame_equal(raw, get_adjusted_k_line(**parameters, adjust_type="none"))
+    chart = get_indicators(**parameters, adjust_type="none", windows=[2], include_prices=True)
+    assert chart["close"].tolist() == [39]
+    assert chart["ma2"].tolist() == [39.5]
+    assert chart["daily_return"].iloc[0] == pytest.approx(39 / 40 - 1)
+    assert chart["cumulative_return"].tolist() == [0]
+    assert chart["adjust_type"].tolist() == ["none"]
+    with pytest.raises(FileNotFoundError, match="没有行情"):
+        get_raw_k_line("sh.600036", source, start_date=date(2027, 1, 1), root=tmp_path)
+    with pytest.raises(DateRangeError):
+        get_raw_k_line("sh.600036", source, start_date=date(2027, 1, 1), end_date=date(2026, 1, 1), root=tmp_path)

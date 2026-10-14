@@ -23,7 +23,7 @@ class FactorEngineResponse(BaseModel):
     symbol: str
     name: str
     industry: str
-    adjust_type: Literal["qfq", "hfq"]
+    adjust_type: Literal["none", "qfq", "hfq"]
     windows: list[int]
     baseline_date: date
     rows: int

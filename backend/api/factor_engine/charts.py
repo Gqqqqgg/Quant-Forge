@@ -24,7 +24,7 @@ def get_stock_charts(
     source: Literal["baostock", "tushare"] = "tushare",
     start_date: date | None = None,
     end_date: date | None = None,
-    adjust_type: Literal["qfq", "hfq"] = "hfq",
+    adjust_type: Literal["none", "qfq", "hfq"] = "hfq",
     windows: Annotated[list[int] | None, Query()] = None,
 ) -> FactorEngineResponse:
     return calculate_charts(

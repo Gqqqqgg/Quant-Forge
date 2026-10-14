@@ -18,7 +18,7 @@ def get_indicators(
     source: str = "tushare",
     start_date: date | None = None,
     end_date: date | None = None,
-    adjust_type: Literal["qfq", "hfq"] = "hfq",
+    adjust_type: Literal["none", "qfq", "hfq"] = "hfq",
     windows: list[int] | tuple[int, ...] = (5, 20, 60),
     root: Path | None = None,
     include_prices: bool = False,

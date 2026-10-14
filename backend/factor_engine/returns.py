@@ -24,7 +24,7 @@ def get_returns(
     source: str = "tushare",
     start_date: date | None = None,
     end_date: date | None = None,
-    adjust_type: Literal["qfq", "hfq"] = "hfq",
+    adjust_type: Literal["none", "qfq", "hfq"] = "hfq",
     root: Path | None = None,
 ) -> pd.DataFrame:
     """先计算历史每日收益，再截取请求区间并设置累计收益基准。"""

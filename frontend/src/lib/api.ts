@@ -33,7 +33,7 @@ export type ChartResponse = {
   name: string;
   industry: string;
   source: string;
-  adjust_type: "qfq" | "hfq";
+  adjust_type: "none" | "qfq" | "hfq";
   baseline_date: string;
   rows: number;
   data: ChartRow[];
@@ -56,7 +56,7 @@ export type FactorEngineParams = {
   symbol: string;
   start_date: string;
   end_date: string;
-  adjust_type: "qfq" | "hfq";
+  adjust_type: "none" | "qfq" | "hfq";
   windows: number[];
 };
 

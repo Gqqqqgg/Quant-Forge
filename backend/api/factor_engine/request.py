@@ -13,5 +13,5 @@ class FactorEngineRequest(BaseModel):
     symbol: str = Field(pattern=r"^(sh|sz|bj)\.\d{6}$")
     start_date: date | None = None
     end_date: date | None = None
-    adjust_type: Literal["qfq", "hfq"] = "hfq"
+    adjust_type: Literal["none", "qfq", "hfq"] = "hfq"
     windows: list[int] = Field(default_factory=lambda: [5, 20, 60])
