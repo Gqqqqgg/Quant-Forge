@@ -3,8 +3,35 @@
 from __future__ import annotations
 
 import math
+from datetime import date
+from pathlib import Path
+from typing import Literal
 
 import pandas as pd
+
+from factor_engine.adjustment import DateRangeError, get_adjusted_k_line, select_date_range
+
+
+def select_returns_date_range(frame: pd.DataFrame, start_date: date | None = None) -> pd.DataFrame:
+    """保留历史每日收益率，将累计收益基准设为请求区间首日。"""
+    frame = select_date_range(frame, start_date)
+    frame["cumulative_return"] = frame["close"] / frame["close"].iloc[0] - 1
+    return frame
+
+
+def get_returns(
+    symbol: str,
+    source: str = "tushare",
+    start_date: date | None = None,
+    end_date: date | None = None,
+    adjust_type: Literal["qfq", "hfq"] = "hfq",
+    root: Path | None = None,
+) -> pd.DataFrame:
+    """先计算历史每日收益，再截取请求区间并设置累计收益基准。"""
+    if start_date and end_date and start_date > end_date:
+        raise DateRangeError("开始日期不能晚于结束日期。")
+    adjusted = get_adjusted_k_line(symbol, source, end_date=end_date, adjust_type=adjust_type, root=root)
+    return select_returns_date_range(calculate_returns(adjusted), start_date)
 
 
 def calculate_returns(k_lines: pd.DataFrame) -> pd.DataFrame:

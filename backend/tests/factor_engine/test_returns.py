@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from server.calculated.returns import calculate_returns
+from factor_engine.returns import calculate_returns
 
 
 @pytest.fixture

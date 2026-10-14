@@ -3,7 +3,7 @@ import math
 import pandas as pd
 import pytest
 
-from server.calculated.indicators import calculate_indicators
+from factor_engine.indicators import calculate_indicators
 
 
 @pytest.fixture

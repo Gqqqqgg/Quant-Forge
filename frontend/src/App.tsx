@@ -35,7 +35,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   getJson,
-  calculateCharts,
+  getFactorEngineCharts,
   type ChartResponse,
   type ChartRow,
   type Stock,
@@ -264,7 +264,7 @@ export default function App() {
     setLoading(true);
     setError("");
     setResponse(null);
-    calculateCharts(
+    getFactorEngineCharts(
       {
         source: "baostock",
         symbol,

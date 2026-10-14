@@ -51,7 +51,7 @@ export async function getJson<T>(
   return response.json() as Promise<T>;
 }
 
-export type CalculationParams = {
+export type FactorEngineParams = {
   source: "baostock" | "tushare";
   symbol: string;
   start_date: string;
@@ -60,11 +60,11 @@ export type CalculationParams = {
   windows: number[];
 };
 
-export async function calculateCharts(
-  params: CalculationParams,
+export async function getFactorEngineCharts(
+  params: FactorEngineParams,
   signal: AbortSignal,
 ): Promise<ChartResponse> {
-  const response = await fetch("/api/calculated/charts", {
+  const response = await fetch("/api/factor_engine/charts", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(params),

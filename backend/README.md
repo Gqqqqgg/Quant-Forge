@@ -49,13 +49,13 @@ metadata 同步通过 `market_data.service.DataService` 直接调用。默认数
 
 ## 实时计算接口
 
-接口按模块组织：`backend/api/stocks.py` 提供原始股票列表，`backend/api/calculated/` 接收计算参数并返回响应。计算业务位于 `backend/server/calculated/`：`adjustment.py` 计算复权、`returns.py` 计算收益率、`indicators.py` 计算指标；`service.py` 的 `CalculationService` 组织原始数据读取、计算和日期截取。`api/calculated/request.py` 定义 `CalculationRequest`，`api/calculated/response.py` 定义 `CalculationResponse`，并调用服务、转换 HTTP 错误及组装响应。业务服务不依赖 API，计算不落盘。
+接口按模块组织：`backend/api/stocks.py` 提供原始股票列表，`backend/api/factor_engine/` 接收计算参数并返回响应。计算业务位于 `backend/factor_engine/`：`adjustment.py` 计算复权、`returns.py` 计算收益率、`indicators.py` 计算指标；`adjustment.py` 的 `get_adjusted_k_line()` 读取原始数据并复权，`returns.py` 的 `get_returns()` 和 `indicators.py` 的 `get_indicators()` 分别组织收益率和指标计算、日期截取及累计收益基准；图表通过 `get_indicators(include_prices=True)` 合并价格。`api/factor_engine/request.py` 定义 `FactorEngineRequest`，`api/factor_engine/response.py` 定义 `FactorEngineResponse`，并直接调用各模块函数、转换 HTTP 错误及组装响应。计算模块不依赖 API，计算不落盘。
 
 - `GET /api/stocks?source=baostock`：从原始日线列出股票。
-- `POST /api/calculated/adjustment`：计算前复权或后复权日线。
-- `POST /api/calculated/returns`：计算每日与累计收益率。
-- `POST /api/calculated/indicators`：计算指定窗口的均线、收益率波动率和平均成交量。
-- `POST /api/calculated/charts`：一次返回图表所需的价格、成交量、收益率和指标。
+- `POST /api/factor_engine/adjustment`：计算前复权或后复权日线。
+- `POST /api/factor_engine/returns`：计算每日与累计收益率。
+- `POST /api/factor_engine/indicators`：计算指定窗口的均线、收益率波动率和平均成交量。
+- `POST /api/factor_engine/charts`：一次返回图表所需的价格、成交量、收益率和指标。
 - `GET /api/stocks/{symbol}/charts`：支持同名查询参数，`windows` 可重复传入。
 
 POST 请求示例：
@@ -79,8 +79,8 @@ POST 请求示例：
 
 ## 测试
 
-计算算法用例位于 `tests/server/calculated/`，使用模拟行情，不请求数据源或修改本地行情。在 `backend/` 执行：
+计算算法用例位于 `tests/factor_engine/`，使用模拟行情，不请求数据源或修改本地行情。在 `backend/` 执行：
 
 ```powershell
-uv run --group dev pytest tests/server/calculated
+uv run --group dev pytest tests/factor_engine
 ```

@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from api.calculated import adjustment, charts, indicators, returns
+from api.factor_engine import adjustment, charts, indicators, returns
 
 router = APIRouter()
 for module in (adjustment, returns, indicators, charts):

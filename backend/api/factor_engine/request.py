@@ -6,7 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
-class CalculationRequest(BaseModel):
+class FactorEngineRequest(BaseModel):
     """前端传入股票、日期、复权方式和指标窗口。"""
 
     source: Literal["baostock", "tushare"] = "tushare"

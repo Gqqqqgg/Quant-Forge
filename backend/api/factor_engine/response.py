@@ -9,12 +9,14 @@ from typing import Any, Literal
 from fastapi import HTTPException
 from pydantic import BaseModel
 
-from api.calculated.request import CalculationRequest
+from api.factor_engine.request import FactorEngineRequest
 from api.stocks import STOCK_NAMES
-from server.calculated.service import CalculationService, DateRangeError
+from factor_engine.adjustment import DateRangeError, get_adjusted_k_line
+from factor_engine.indicators import get_indicators
+from factor_engine.returns import get_returns
 
 
-class CalculationResponse(BaseModel):
+class FactorEngineResponse(BaseModel):
     """统一的计算响应，指标列随请求窗口动态变化。"""
 
     source: Literal["baostock", "tushare"]
@@ -28,9 +30,19 @@ class CalculationResponse(BaseModel):
     data: list[dict[str, Any]]
 
 
-def execute(request: CalculationRequest, dataset: str) -> CalculationResponse:
+def execute(request: FactorEngineRequest, dataset: str) -> FactorEngineResponse:
     try:
-        frame = CalculationService().calculate(dataset=dataset, **request.model_dump())
+        parameters = request.model_dump()
+        if dataset == "adjustment":
+            parameters.pop("windows")
+            frame = get_adjusted_k_line(**parameters)
+        elif dataset == "returns":
+            parameters.pop("windows")
+            frame = get_returns(**parameters)
+        elif dataset in {"indicators", "charts"}:
+            frame = get_indicators(**parameters, include_prices=dataset == "charts")
+        else:
+            raise ValueError(f"不支持的计算类型：{dataset}")
     except DateRangeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:
@@ -40,7 +52,7 @@ def execute(request: CalculationRequest, dataset: str) -> CalculationResponse:
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     name, industry = STOCK_NAMES.get(request.symbol, (request.symbol, "股票"))
-    return CalculationResponse(
+    return FactorEngineResponse(
         **{
             "source": request.source,
             "symbol": request.symbol,

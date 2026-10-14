@@ -3,10 +3,36 @@
 from __future__ import annotations
 
 import math
+from datetime import date
+from pathlib import Path
+from typing import Literal
 
 import pandas as pd
 
-from server.calculated.returns import calculate_returns
+from factor_engine.adjustment import DateRangeError, get_adjusted_k_line
+from factor_engine.returns import calculate_returns, select_returns_date_range
+
+
+def get_indicators(
+    symbol: str,
+    source: str = "tushare",
+    start_date: date | None = None,
+    end_date: date | None = None,
+    adjust_type: Literal["qfq", "hfq"] = "hfq",
+    windows: list[int] | tuple[int, ...] = (5, 20, 60),
+    root: Path | None = None,
+    include_prices: bool = False,
+) -> pd.DataFrame:
+    """使用历史行情预热指标窗口，可合并图表所需的开高低价格。"""
+    if start_date and end_date and start_date > end_date:
+        raise DateRangeError("开始日期不能晚于结束日期。")
+    adjusted = get_adjusted_k_line(symbol, source, end_date=end_date, adjust_type=adjust_type, root=root)
+    frame = calculate_indicators(adjusted, windows)
+    if include_prices:
+        frame = adjusted[["code", "trade_date", "open", "high", "low"]].merge(
+            frame, on=["code", "trade_date"], validate="one_to_one"
+        )
+    return select_returns_date_range(frame, start_date)
 
 
 def calculate_indicators(k_lines: pd.DataFrame, windows: list[int] | tuple[int, ...] = (5, 20, 60)) -> pd.DataFrame:

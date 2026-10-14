@@ -5,14 +5,14 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Path, Query
 
-from api.calculated.request import CalculationRequest
-from api.calculated.response import CalculationResponse, execute
+from api.factor_engine.request import FactorEngineRequest
+from api.factor_engine.response import FactorEngineResponse, execute
 
 router = APIRouter()
 
 
-@router.post("/calculated/charts")
-def calculate_charts(request: CalculationRequest) -> CalculationResponse:
+@router.post("/factor_engine/charts")
+def calculate_charts(request: FactorEngineRequest) -> FactorEngineResponse:
     """一次返回前端所需的价格、成交量、收益率和指标。"""
 
     return execute(request, "charts")
@@ -26,9 +26,9 @@ def get_stock_charts(
     end_date: date | None = None,
     adjust_type: Literal["qfq", "hfq"] = "hfq",
     windows: Annotated[list[int] | None, Query()] = None,
-) -> CalculationResponse:
+) -> FactorEngineResponse:
     return calculate_charts(
-        CalculationRequest(
+        FactorEngineRequest(
             source=source,
             symbol=symbol,
             start_date=start_date,

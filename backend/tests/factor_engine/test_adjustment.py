@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from server.calculated.adjustment import calculate_adjusted_k_line
+from factor_engine.adjustment import calculate_adjusted_k_line
 
 
 @pytest.fixture
