@@ -2,6 +2,7 @@ export type Stock = {
   symbol: string;
   name: string;
   industry: string;
+  asset_type: "stock" | "index";
   rows: number;
   start_date: string;
   end_date: string;

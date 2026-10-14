@@ -213,6 +213,8 @@ export default function App() {
   const [revision, setRevision] = useState(0);
 
   const selected = stocks.find((stock) => stock.symbol === symbol);
+  const isIndex = selected?.asset_type === "index";
+  const effectiveAdjustType = isIndex ? "none" : adjustType;
   const requestedEnd = endDate || selected?.end_date || "";
   const months = PERIODS.find((item) => item.value === period)?.months ?? 0;
   let requestedStart = startDate || selected?.start_date || "";
@@ -221,16 +223,23 @@ export default function App() {
     cutoff.setUTCMonth(cutoff.getUTCMonth() - months);
     requestedStart = cutoff.toISOString().slice(0, 10);
   }
-  const priceLabel = { none: "不复权", qfq: "前复权", hfq: "后复权" }[adjustType];
+  const priceLabel = isIndex ? "指数" : { none: "不复权", qfq: "前复权", hfq: "后复权" }[effectiveAdjustType];
 
   useEffect(() => {
     const controller = new AbortController();
     setError("");
     setListLoading(true);
-    getJson<{ stocks: Stock[] }>(
-      "/api/stocks?source=baostock",
-      controller.signal,
-    )
+    Promise.all([
+      getJson<{ stocks: Stock[] }>(
+        "/api/stocks?source=baostock",
+        controller.signal,
+      ),
+      getJson<{ indexs: Stock[] }>(
+        "/api/indexs?source=baostock",
+        controller.signal,
+      ),
+    ])
+      .then(([stocks, indexs]) => ({ stocks: [...stocks.stocks, ...indexs.indexs] }))
       .then((result) => {
         setStocks(result.stocks);
         setSymbol((current) =>
@@ -270,7 +279,7 @@ export default function App() {
         symbol,
         start_date: requestedStart,
         end_date: requestedEnd,
-        adjust_type: adjustType,
+        adjust_type: effectiveAdjustType,
         windows,
       },
       controller.signal,
@@ -283,7 +292,7 @@ export default function App() {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [symbol, revision, requestedStart, requestedEnd, adjustType, windows]);
+  }, [symbol, revision, requestedStart, requestedEnd, effectiveAdjustType, windows]);
 
   const data = response?.data ?? [];
   const latest = data.at(-1);
@@ -561,7 +570,8 @@ export default function App() {
             <div className="flex flex-col gap-1.5 text-xs text-muted-foreground">
               <span>复权方式</span>
               <Select
-                value={adjustType}
+                value={effectiveAdjustType}
+                disabled={isIndex}
                 onValueChange={(value) => setAdjustType(value as "none" | "qfq" | "hfq")}
               >
                 <SelectTrigger className="w-[130px]" aria-label="复权方式">
@@ -608,8 +618,8 @@ export default function App() {
               <div className="mb-7 grid grid-cols-2 gap-y-3 px-1 sm:grid-cols-4">
                 <Metric
                   label={`${priceLabel}收盘价`}
-                  value={`¥ ${money(latest.close)}`}
-                  detail={`${latest.trade_date} · ${adjustType === "none" ? "原始行情价格" : "复权价格，非实际成交价"}`}
+                  value={isIndex ? `${money(latest.close)} 点` : `¥ ${money(latest.close)}`}
+                  detail={`${latest.trade_date} · ${isIndex ? "指数点位" : effectiveAdjustType === "none" ? "原始行情价格" : "复权价格，非实际成交价"}`}
                 />
                 <Metric
                   label="最新交易日收益"
@@ -636,7 +646,7 @@ export default function App() {
               <div className="space-y-5">
                 <Plot
                   title="价格与均线"
-                  subtitle={`${priceLabel}收盘价 · 元`}
+                  subtitle={`${priceLabel}收盘价 · ${isIndex ? "点" : "元"}`}
                   height={340}
                   legend={
                     <>

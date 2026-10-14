@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel
 
 from api.factor_engine.request import FactorEngineRequest
-from api.stocks import STOCK_NAMES
+from api.stocks import INDEX_NAMES, SECURITY_NAMES
 from factor_engine.adjustment import DateRangeError, get_adjusted_k_line
 from factor_engine.indicators import get_indicators
 from factor_engine.returns import get_returns
@@ -31,6 +31,9 @@ class FactorEngineResponse(BaseModel):
 
 
 def execute(request: FactorEngineRequest, dataset: str) -> FactorEngineResponse:
+    name, industry = SECURITY_NAMES.get(request.symbol, (request.symbol, "股票"))
+    if request.symbol in INDEX_NAMES and request.adjust_type != "none":
+        raise HTTPException(status_code=422, detail="指数请使用不复权模式（adjust_type=none）。")
     try:
         parameters = request.model_dump()
         if dataset == "adjustment":
@@ -51,7 +54,6 @@ def execute(request: FactorEngineRequest, dataset: str) -> FactorEngineResponse:
         raise HTTPException(status_code=501, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    name, industry = STOCK_NAMES.get(request.symbol, (request.symbol, "股票"))
     return FactorEngineResponse(
         **{
             "source": request.source,
