@@ -16,11 +16,37 @@ uv run python main.py
 
 ## 数据同步
 
-`main.py` 启动 FastAPI 策略展示服务，默认监听 `127.0.0.1:8000`，接口文档位于 `/docs`，不通过命令执行策略。前端开发服务将 `/api` 请求代理到该端口。市场数据采集和存储位于 `market_data/`，同步通过 `market_data.service.DataService` 的服务方法调用。
+`main.py` 启动 FastAPI 服务，默认监听 `127.0.0.1:8000`，接口文档位于 `/docs`，不通过命令执行策略。前端开发服务将 `/api` 请求代理到该端口。市场数据采集和存储位于 `market_data/`，`market_data/api.py` 提供手工测试用的行情同步工具接口，每项同步逻辑对应一个独立的 `sync_*` 函数。
 
 数据源默认是 `tushare`，不支持 `auto` 或自动切换。目前 Tushare 同步接口尚未实现，默认调用会明确报错。现阶段使用免费的 BaoStock 测试时，必须显式传入 `source="baostock"`；日线和复权因子同步须指定 `start_date` 和 `end_date`。
 
-Service 的两个同步方法接受 `symbols`，传入股票列表时无需先同步 metadata，不传时从 `stock.parquet` 读取全量股票。`row_store.py` 仅保留 `save_adjust_factor()` 和 `save_daily_k_line()` 两个保存方法，命名与 service 对应。保存格式沿用现有逻辑，重复运行按股票和日期去重；同步方法返回成功数、失败数、行数和失败详情。
+复权因子和日线同步接受 `symbols`，传入股票列表时无需先同步 metadata，不传时从 `stock.parquet` 读取全量股票。`row_store.py` 仅保留 `save_adjust_factor()` 和 `save_daily_k_line()` 两个保存方法。保存格式沿用现有逻辑，重复运行按股票和日期去重；同步方法返回成功数、失败数、行数和失败详情。
+
+### 手工调用行情工具
+
+启动后访问 `http://127.0.0.1:8000/docs`，展开“行情工具（手工测试）”，点击对应接口的 **Try it out**，填写 JSON 后执行。这些接口直接同步并保存本地数据，不需要前端页面。
+
+| 方法 | 路径 | 用途 | 请求参数 |
+| --- | --- | --- | --- |
+| POST | `/api/tools/market-data/sync/trade-dates` | 交易日历 | `source`、可选起止日期 |
+| POST | `/api/tools/market-data/sync/stock-basic` | 证券基础资料 | `source` |
+| POST | `/api/tools/market-data/sync/adjust-factor` | 复权因子 | `source`、必填起止日期、可选 `symbols` |
+| POST | `/api/tools/market-data/sync/daily-k-line` | 未复权日线 | `source`、必填起止日期、可选 `symbols` |
+
+例如，测试日线或复权因子同步时填写：
+
+```json
+{
+  "source": "baostock",
+  "start_date": "2026-07-13",
+  "end_date": "2026-10-13",
+  "symbols": ["sh.600519"]
+}
+```
+
+交易日历的日期不传时，默认从 2000-01-01 同步到北京时间当年年末。基础资料请求可填写 `{"source": "baostock"}`。错误或缺失参数返回 422，尚未实现的 Tushare 同步返回 501，缺少本地基础资料等运行错误返回 400。逐股票同步的部分失败仍以成功响应返回，通过 `failed_count` 和 `failures` 查看详情。
+
+请求会等待同步完成后返回；日线和复权因子仍按每次请求前等待 5 秒的规则执行，因此全量同步可能耗时较长。省略 `symbols` 前需先同步基础资料；显式传入时不能为空列表，代码格式为 `sh.600519`、`sz.000333` 等。
 
 基础资料 metadata 已完成同步。BaoStock 的 `query_stock_basic()` 返回多种证券类型，`type` 包括股票、指数、其他、可转债和 ETF，统一写入 `stock.parquet`。
 
@@ -35,15 +61,15 @@ uv run --group dev black .
 
 数据 provider 使用 BaoStock 获取基础资料 metadata。BaoStock 使用 `query_stock_basic()` 获取包含 ETF 的证券基础列表，并保留接口的原始字段。BaoStock provider 通过通用的 `connect()` 生命周期方法建立匿名会话，底层调用 BaoStock SDK 的 `bs.login()`；这里不涉及用户名、密码、Token 或 API Key。metadata 行中会写入 `source` 和北京时间格式的 `ingest_time`。
 
-metadata 同步通过 `market_data.service.DataService` 直接调用。默认数据目录是系统用户目录下的 `.a-stock-data`，也可以用 `A_STOCK_DATA_ROOT` 覆盖。
+metadata 可通过上述接口同步，也可从 `market_data.api` 导入 `sync_stock_basic`、`sync_trade_dates` 等函数直接调用。默认数据目录是系统用户目录下的 `.a-stock-data`，也可以用 `A_STOCK_DATA_ROOT` 覆盖。
 
 交易日历已经按年份保存到 `{source}/metadata/trade_dates/<年份>.parquet`。证券基础资料按数据类型保存到 `{source}/metadata/stock_basic/stock.parquet`、`index.parquet` 和 `fund.parquet`，并按同步日期保存快照。
 
-复权事件通过对应 provider 的 `fetch_adjust_factor()` 获取，并由 `DataService.sync_adjust_factor()` 写入 `{source}/row/adjust_factor/<股票代码>.parquet`；每只股票一个文件，使用 `code` 和 `dividOperateDate` 去重。
+复权事件通过对应 provider 的 `fetch_adjust_factor()` 获取，并由 `market_data.api.sync_adjust_factor()` 写入 `{source}/row/adjust_factor/<股票代码>.parquet`；每只股票一个文件，使用 `code` 和 `dividOperateDate` 去重。
 
-日线行情通过 `DataService.sync_daily_k_line()` 同步，写入 `{source}/row/k_line/<股票代码>.parquet`，每只股票一个文件，按 `code` 和 `trade_date` 去重。复权因子和日线均跨年份合并保存，重复同步更新同一文件。交易日历仍按年份保存。
+日线行情通过 `market_data.api.sync_daily_k_line()` 同步，写入 `{source}/row/k_line/<股票代码>.parquet`，每只股票一个文件，按 `code` 和 `trade_date` 去重。复权因子和日线均跨年份合并保存，重复同步更新同一文件。交易日历仍按年份保存。
 
-复权因子和原始日线均按股票列表逐只采集和保存，每次请求前等待 5 秒，重新登录后的重试请求也一样。日期是否齐全及开始日期是否晚于结束日期由 service 检查。每次运行都重新请求整个股票列表，不读写进度文件。
+复权因子和原始日线均按股票列表逐只采集和保存，每次请求前等待 5 秒，重新登录后的重试请求也一样。日期是否齐全及开始日期是否晚于结束日期由接口参数模型和 `sync_*` 检查。每次运行都重新请求整个股票列表，不读写进度文件。
 
 当前已支持交易日历、证券基础资料、复权因子和未复权日线行情同步。日线行情字段以 `code`、`trade_date`、OHLC 为核心，并保留成交量、成交额和换手率（数据源提供时）。
 

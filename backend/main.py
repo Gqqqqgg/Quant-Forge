@@ -1,14 +1,16 @@
-"""启动 FastAPI 策略展示服务。"""
+"""启动策略展示与行情手工测试工具服务。"""
 
 import argparse
 
 import uvicorn
 from fastapi import FastAPI
 
+from market_data.api import router as market_data_router
 from strategies.api import router as strategies_router
 
-app = FastAPI(title="Quant Forge", description="独立策略展示与参数预览")
+app = FastAPI(title="Quant Forge", description="独立策略展示、参数预览与行情手工测试工具")
 app.include_router(strategies_router)
+app.include_router(market_data_router)
 
 
 def main():

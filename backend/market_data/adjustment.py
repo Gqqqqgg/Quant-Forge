@@ -9,7 +9,7 @@ from typing import Literal
 
 import pandas as pd
 
-from market_data.service import DataService
+from market_data.storage.root_path import get_data_root
 
 
 class DateRangeError(ValueError):
@@ -40,7 +40,7 @@ def get_raw_k_line(
         raise DateRangeError("开始日期不能晚于结束日期。")
     if source not in {"baostock", "tushare"}:
         raise ValueError(f"不支持的数据源：{source}")
-    data_root = (root if root is not None else DataService().row_store.root) / source / "row"
+    data_root = (root if root is not None else get_data_root()) / source / "row"
     k_line_path = data_root / "k_line" / f"{symbol}.parquet"
     if not k_line_path.exists():
         raise FileNotFoundError("未找到股票的原始日线，请先完成同步。")
@@ -68,7 +68,7 @@ def get_adjusted_k_line(
         raise DateRangeError("开始日期不能晚于结束日期。")
     if source != "baostock":
         raise NotImplementedError("尚未实现 Tushare 的复权因子转换。")
-    data_root = (root if root is not None else DataService().row_store.root) / source / "row"
+    data_root = (root if root is not None else get_data_root()) / source / "row"
     k_line_path = data_root / "k_line" / f"{symbol}.parquet"
     factor_path = data_root / "adjust_factor" / f"{symbol}.parquet"
     if not k_line_path.exists() or not factor_path.exists():
