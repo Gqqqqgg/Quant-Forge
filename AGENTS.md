@@ -1,54 +1,54 @@
-# Quant-Forge agent instructions
+# Quant-Forge 智能体工作规范
 
-This file is the single source of truth for repository instructions. Keep agent-specific entrypoints such as `CLAUDE.md` as thin references to this file instead of duplicating these rules.
+本文件是仓库工作规范的唯一来源。`CLAUDE.md` 等特定智能体的入口文件只需引用本文件，不要重复维护这些规则。
 
-## Repository overview
+## 仓库概览
 
-- `backend/`: Python backend service built with FastAPI.
-- `frontend/`: frontend application (currently minimal; inspect the directory before assuming its tooling).
-- `mobile/`: mobile application (currently minimal; inspect the directory before assuming its tooling).
-- `scripts/`: repository-level development scripts.
+- `backend/`：Python 策略平台，包含行情数据、因子计算、策略筛选和预留的回测模块。
+- `frontend/`：前端应用（当前较精简，先检查目录再判断所用工具）。
+- `mobile/`：移动端应用（当前较精简，先检查目录再判断所用工具）。
+- `scripts/`：仓库级开发脚本。
 
-Read the relevant directory README and configuration files before making changes in that area.
+修改某个模块前，先阅读对应目录的 README、说明文档和配置文件。
 
-## Working rules
+## 工作规则
 
-- Preserve the existing structure and conventions unless the task requires a change.
-- Keep changes focused on the requested outcome. Do not add dependencies, generated files, or broad refactors without a clear need.
-- Never commit secrets, credentials, tokens, local virtual environments, build output, or machine-specific settings.
-- Prefer small, readable functions and clear names. Match the surrounding code style.
-- Update the relevant README or documentation when a command, public behavior, or setup step changes.
-- Before editing, check `git status` and avoid overwriting unrelated user changes.
+- 除非任务需要调整，否则保留现有结构和约定。
+- 修改应聚焦于用户要求的结果。没有明确需要时，不添加依赖、生成文件或进行大范围重构。
+- 不要提交密钥、凭据、令牌、本地虚拟环境、构建产物或机器专属配置。
+- 优先编写简短、易读的函数，使用清晰的命名，并保持与周边代码一致的风格。
+- 命令、对外行为或配置步骤发生变化时，同步更新相关 README 或说明文档。
+- 编辑前检查 `git status`，避免覆盖用户已有的无关修改。
 
-## Backend commands
+## 后端命令
 
-Run these from `backend/` unless noted otherwise:
+除特别说明外，以下命令均在 `backend/` 目录执行：
 
 ```powershell
-# Start the development server from the repository root
+# 在仓库根目录启动策略展示服务
 .\scripts\dev.ps1
 
-# Or start it directly from backend/
-uv run uvicorn main:app --reload
+# 或在 backend/ 目录直接启动
+uv run python main.py
 
-# Format Python code
+# 格式化 Python 代码
 uv run --group dev isort .
 uv run --group dev black .
 
-# Run tests when the change affects backend behavior
+# 修改影响后端行为时运行测试
 uv run --group dev pytest
 ```
 
-The backend targets Python 3.12 or newer. Black and isort use a line length of 120 and Black-compatible import ordering.
+后端要求 Python 3.12 或更新版本。Black 和 isort 的行长度均为 120，导入排序采用 Black 兼容风格。
 
-## Validation
+## 验证要求
 
-- For backend changes, run the most relevant tests and formatters that are available.
-- For documentation-only changes, verify Markdown links, code blocks, and commands against the current repository.
-- Report which checks were run and call out checks that could not be run.
+- 修改后端代码时，运行可用且与修改最相关的测试和格式化工具。
+- 仅修改文档时，对照当前仓库检查 Markdown 链接、代码块和命令是否正确。
+- 交付时说明执行了哪些检查，并明确指出未能执行的检查。
 
-## Git and delivery
+## Git 与交付
 
-- Do not rewrite history, reset, or discard user changes unless explicitly requested.
-- Do not create commits unless the user asks for one.
-- In the final response, summarize changed files, validation performed, and any remaining limitation.
+- 除非用户明确要求，否则不要重写历史、重置仓库或丢弃用户修改。
+- 只有用户要求时才创建提交。
+- 最终回复应概述修改的文件、执行的验证及仍存在的限制。

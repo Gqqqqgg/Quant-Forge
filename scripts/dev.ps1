@@ -1,8 +1,11 @@
-$backendPath = Join-Path (Split-Path $PSScriptRoot -Parent) "backend"
+param(
+    [int]$Port = 8000
+)
 
+$backendPath = Join-Path (Split-Path $PSScriptRoot -Parent) "backend"
 Push-Location $backendPath
 try {
-    & uv run uvicorn main:app --reload
+    & uv run python main.py --port $Port
     exit $LASTEXITCODE
 }
 finally {

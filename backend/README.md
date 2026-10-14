@@ -1,6 +1,6 @@
 # 后端
 
-## 启动
+## 启动策略展示服务
 
 在仓库根目录执行：
 
@@ -11,12 +11,12 @@
 也可以在当前目录直接执行：
 
 ```powershell
-uv run uvicorn main:app --reload
+uv run python main.py
 ```
 
 ## 数据同步
 
-`main.py` 仅提供 FastAPI 应用入口。市场数据采集和存储位于 `market_data/`，同步通过 `market_data.service.DataService` 的服务方法调用。
+`main.py` 启动 FastAPI 策略展示服务，默认监听 `127.0.0.1:8000`，接口文档位于 `/docs`，不通过命令执行策略。前端开发服务将 `/api` 请求代理到该端口。市场数据采集和存储位于 `market_data/`，同步通过 `market_data.service.DataService` 的服务方法调用。
 
 数据源默认是 `tushare`，不支持 `auto` 或自动切换。目前 Tushare 同步接口尚未实现，默认调用会明确报错。现阶段使用免费的 BaoStock 测试时，必须显式传入 `source="baostock"`；日线和复权因子同步须指定 `start_date` 和 `end_date`。
 
@@ -47,45 +47,57 @@ metadata 同步通过 `market_data.service.DataService` 直接调用。默认数
 
 当前已支持交易日历、证券基础资料、复权因子和未复权日线行情同步。日线行情字段以 `code`、`trade_date`、OHLC 为核心，并保留成交量、成交额和换手率（数据源提供时）。
 
-## 实时计算接口
+## 目录与职责
 
-接口按模块组织：`backend/api/stocks.py` 提供原始股票列表，`backend/api/factor_engine/` 接收计算参数并返回响应。计算业务位于 `backend/factor_engine/`：`adjustment.py` 计算复权、`returns.py` 计算收益率、`indicators.py` 计算指标；`adjustment.py` 的 `get_adjusted_k_line()` 读取原始数据并复权，`returns.py` 的 `get_returns()` 和 `indicators.py` 的 `get_indicators()` 分别组织收益率和指标计算、日期截取及累计收益基准；图表通过 `get_indicators(include_prices=True)` 合并价格。`api/factor_engine/request.py` 定义 `FactorEngineRequest`，`api/factor_engine/response.py` 定义 `FactorEngineResponse`，并直接调用各模块函数、转换 HTTP 错误及组装响应。计算模块不依赖 API，计算不落盘。
-
-- `GET /api/stocks?source=baostock`：列出 `STOCK_NAMES` 中已有原始日线的股票。
-- `GET /api/indexs?source=baostock`：通过 `get_indexs()` 列出已有原始日线的配置指数，列表字段为 `indexs`。
-- `POST /api/factor_engine/adjustment`：返回不复权原始日线，或计算前复权、后复权日线。
-- `POST /api/factor_engine/returns`：计算每日与累计收益率。
-- `POST /api/factor_engine/indicators`：计算指定窗口的均线、收益率波动率和平均成交量。
-- `POST /api/factor_engine/charts`：一次返回图表所需的价格、成交量、收益率和指标。
-- `GET /api/stocks/{symbol}/charts`：支持同名查询参数，`windows` 可重复传入。
-
-POST 请求示例：
-
-```json
-{
-  "source": "baostock",
-  "symbol": "sh.600519",
-  "start_date": "2025-01-01",
-  "end_date": "2026-10-13",
-  "adjust_type": "hfq",
-  "windows": [5, 20, 60]
-}
+```text
+backend/
+├── market_data/      # 行情采集、存储、读取与复权
+├── factor_engine/    # 按价值、质量、成长、动量、风险、规模和流动性分类的因子计算
+├── strategies/       # 每个策略独立定义、参数、股票池与筛选逻辑
+│   ├── momentum/     # 动量
+│   ├── mean_reversion/ # 均值回归
+│   └── low_volatility/ # 低波动
+├── tests/            # 按模块和策略目录组织测试
+├── backtest/         # 预留回测模块，尚未实现
+└── main.py           # 策略展示与参数预览 HTTP 服务
 ```
 
-数据源默认 `tushare`，现阶段 BaoStock 测试需显式传入 `baostock`。日期可省略，省略时使用已有历史区间。`adjust_type` 支持 `none`（不复权）、`qfq`（前复权）和 `hfq`（后复权），默认 `hfq`；指标窗口支持 2 至 250 的整数，空列表表示不计算窗口指标。
+`factor_engine` 保留全部已有计算能力。各策略独立拥有 `definition.py`（默认参数 `DEFAULT_PARAMETERS`、筛选定义、结果模型及股票和指数范围）、`strategy.py`（参数校验、展示信息与入口）和 `screening.py`（筛选计算），没有公共策略实现目录。默认配置、结果模型及股票范围均收在 `definition.py` 中，不再使用独立的 `config.json`、`result.py` 或 `universe.py`。`strategies/api.py` 提供 FastAPI 列表、详情和参数预览接口，直接调用各策略，无独立注册表。各级 `__init__.py` 与其他模块一致，只保留包说明，不定义或导出模块。买卖信号、仓位及回测尚未实现。
 
-`adjustment.py` 的 `get_raw_k_line()` 读取指定区间的原始 K 线。`adjust_type="none"` 同样返回原始价格，只读取日线文件，无需复权因子；收益率与指标基于原始价格计算，除权日可能出现价格跳变。
+## 策略展示与参数
 
-`api/stocks.py` 的 `INDEX_NAMES` 与 `STOCK_NAMES` 一样直接配置代码和名称：上证指数（`sh.000001`）、深证成指（`sz.399001`）、创业板指（`sz.399006`）、上证50（`sh.000016`）、中证500（`sh.000905`）和沪深300（`sh.000300`）。使用现有 `DataService.sync_daily_k_line(symbols=list(INDEX_NAMES), ...)` 同步日线后，`get_indexs()`（`GET /api/indexs`）列出这些指数并返回 `asset_type="index"`；`get_stocks()` 只返回股票。指数通过现有图表接口计算均线、收益率和波动率，必须使用 `adjust_type="none"`，无需股票复权因子。
+因子目录结构、已有能力、计算口径及导入路径见 [factor_engine/docs.md](factor_engine/docs.md)。
 
-接口只读取 `{source}/row/k_line/<股票代码>.parquet` 和 `{source}/row/adjust_factor/<股票代码>.parquet`，无需 `calculated` 数据目录，不联网同步。复权价格乘以对应累计因子，首个行情日前必须存在有效因子。先使用截至结束日期的历史数据计算指标，再截取请求区间，保证滚动窗口预热和每日收益率连续；累计收益率以请求区间首日收盘价为基准。前复权使用本地因子当前基准。
+行情读取与复权位于 `market_data/adjustment.py`；各策略在自己的 `screening.py` 中读取行情、调用因子函数、预热窗口并汇总结果，不设置公共指标汇总模块。
 
-指标列为 `maN`、`volatilityN` 和 `volume_maN`；波动率为每日收益率样本标准差（`ddof=1`），不年化。窗口不足或成交量缺失时对应窗口留空，JSON 返回 `null`。计算结果仅返回给调用方，不落盘。已有计算文件不再被读取。
+每个策略统一通过 `run(values, *, preview=False)` 校验参数、组装筛选定义并执行筛选。FastAPI 展示与预览接口传入 `preview=True`，只返回展示信息、参数 JSON Schema、筛选定义和股票池，不读取行情或执行筛选。前端根据参数定义显示选择框、日期和阈值输入，并调用预览接口校验入参。无效参数返回 HTTP 422，未知策略返回 HTTP 404。预览不修改默认参数；参数只在当前页面有效。
 
-## 测试
+展示接口：
 
-计算算法用例位于 `tests/factor_engine/`，使用模拟行情，不请求数据源或修改本地行情。在 `backend/` 执行：
+| 方法 | 路径 | 用途 |
+| --- | --- | --- |
+| GET | `/api/strategies` | 三个策略的展示信息 |
+| GET | `/api/strategies/{id}` | 单个策略详情与默认参数 |
+| POST | `/api/strategies/{id}/preview` | JSON 参数校验和规则预览 |
+
+策略 ID 为 `momentum`、`mean_reversion`、`low_volatility`。三个策略分别支持最低收益与 MA20 偏离、最高 MA20 偏离、最高波动率与回撤阈值。通用可选参数包括起止日期、数据源、复权方式和基准指数。比例 `0.15` 表示 15%。默认日期为历史示例，不自动切换到最新行情。服务只提供展示和预览接口，各目录的 `run(values)` 保留独立筛选实现供 Python 调用与测试。
+
+在仓库根目录也可执行 `scripts/dev.ps1`；通过 `-Port` 调整端口：
 
 ```powershell
-uv run --group dev pytest tests/factor_engine
+.\scripts\dev.ps1 -Port 8000
 ```
+
+股票池为各策略目录 `definition.py` 中的 `STOCK_NAMES`，指数仅作为基准。支持区间收益、最大回撤、区间日收益波动率、MA20／MA60 偏离、末日成交量比和超额收益，条件通过 `gte` / `lte` 按 AND 组合。超额收益 `0.05` 表示 5 个百分点，成交量比 `1` 表示一倍。
+
+均线使用截至结束日期的历史数据预热，区间收益、回撤和波动率只使用所选区间，波动率不年化且不包含首日对区间前一天的收益。指标不足返回 `null`，不会通过依赖该指标的条件；空值排序放最后。基准须覆盖股票实际区间的起止日才能计算超额收益。每只股票返回实际日期、因子值、条件实际值和阈值。
+
+## 验证
+
+```powershell
+uv run --group dev pytest
+uv run --group dev isort .
+uv run --group dev black .
+```
+
+测试结构与职责见 [tests/README.md](tests/README.md)。本地服务用于开发；前端生产部署需配置页面路由回退到 `index.html`，并将 `/api` 代理到后端服务。

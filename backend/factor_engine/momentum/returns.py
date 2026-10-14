@@ -9,7 +9,7 @@ from typing import Literal
 
 import pandas as pd
 
-from factor_engine.adjustment import DateRangeError, get_adjusted_k_line, select_date_range
+from market_data.adjustment import DateRangeError, get_adjusted_k_line, select_date_range
 
 
 def select_returns_date_range(frame: pd.DataFrame, start_date: date | None = None) -> pd.DataFrame:
